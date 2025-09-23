@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1053455389061",
+    "project_id": "runspot-c3d1d",
+    "storage_bucket": "runspot-c3d1d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1053455389061:android:48355f4d48c39a366374ec",
+        "android_client_info": {
+          "package_name": "com.gio.runspot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDmLq6jElxk3ENZpFOPFk5is9yeF2fA_AA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

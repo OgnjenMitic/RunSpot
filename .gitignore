@@ -28,7 +28,16 @@ render.experimental.xml
 *.keystore
 
 # Google Services (e.g. APIs or Firebase)
-google-services.json
+#google-services.json
 
 # Android Profiling
 *.hprof
+
+# Gradle local cache folders
+.tmp/
+android/
+caches/
+daemon/
+jdks/
+native/
+wrapper/
