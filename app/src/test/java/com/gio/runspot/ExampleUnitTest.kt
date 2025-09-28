@@ -1,4 +1,4 @@
-package com.example.runspot
+package com.gio.runspot
 
 import org.junit.Test
 

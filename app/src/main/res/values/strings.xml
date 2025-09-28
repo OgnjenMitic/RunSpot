@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">RunSpot</string>
+    <string name="google_maps_api_key">AIzaSyCjB4To30HlsZ007n8lWpWvBAwos5DT9l0</string>
 </resources>
