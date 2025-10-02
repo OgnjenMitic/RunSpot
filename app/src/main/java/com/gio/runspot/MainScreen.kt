@@ -1,6 +1,8 @@
 package com.gio.runspot
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.util.Log
@@ -29,6 +31,7 @@ import com.google.maps.android.compose.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.maps.android.PolyUtil
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -37,6 +40,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 private const val MAX_DISTANCE_FILTER_KM = 50f
 
@@ -74,12 +81,14 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // --- Stanja za filtriranje (sada uključuju i radijus) ---
+    // --- Stanja za filtriranje ---
     var showFilterDialog by remember { mutableStateOf(false) }
     var filterByMyRoutes by remember { mutableStateOf(false) }
     var filterDistanceRange by remember { mutableStateOf(0f..MAX_DISTANCE_FILTER_KM) }
-    var filterByRadius by remember { mutableStateOf(false) } // NOVO
-    var filterRadiusKm by remember { mutableFloatStateOf(5f) } // NOVO
+    var filterByRadius by remember { mutableStateOf(false) }
+    var filterRadiusKm by remember { mutableFloatStateOf(5f) }
+    var filterStartDate by remember { mutableStateOf<Date?>(null) } // NOVO
+    var filterEndDate by remember { mutableStateOf<Date?>(null) }   // NOVO
     var filteredRoutes by remember { mutableStateOf<List<Route>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var allSpots by remember { mutableStateOf<List<Spot>>(emptyList()) }
@@ -118,12 +127,11 @@ fun MainScreen(
         }
     }
 
-    // --- Proširen LaunchedEffect koji sada uključuje i radijus ---
-    LaunchedEffect(searchQuery, routes, allSpots, filterByMyRoutes, filterDistanceRange, filterByRadius, filterRadiusKm) {
+    // --- LaunchedEffect sada uključuje i DATUME ---
+    LaunchedEffect(searchQuery, routes, allSpots, filterByMyRoutes, filterDistanceRange, filterByRadius, filterRadiusKm, filterStartDate, filterEndDate) {
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
         var tempFilteredList = routes
 
-        // 1. Filtriranje po pretrazi
         if (searchQuery.isNotBlank()) {
             val routeIdsWithMatchingSpots = allSpots
                 .filter { it.type.contains(searchQuery, ignoreCase = true) }
@@ -133,57 +141,40 @@ fun MainScreen(
             }
         }
 
-        // 2. Filtriranje po autoru
         if (filterByMyRoutes && currentUserId != null) {
             tempFilteredList = tempFilteredList.filter { it.authorId == currentUserId }
         }
 
-        // 3. Filtriranje po distanci
         val minDistanceMeters = (filterDistanceRange.start * 1000).toInt()
         val maxDistanceMeters = (filterDistanceRange.endInclusive * 1000).toInt()
         tempFilteredList = tempFilteredList.filter { it.distance in minDistanceMeters..maxDistanceMeters }
 
-
-        // 4. Filtriranje po radijusu
         if (filterByRadius && locationPermissionsState.allPermissionsGranted) {
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-            try {
-                // NOVO: Dodajemo anotaciju da "ućutkamo" upozorenje jer smo već proverili dozvolu izvan ovog bloka
-                @SuppressWarnings("MissingPermission")
-                val lastLocation: Location? = fusedLocationClient.lastLocation.await() // <- ISPRAVLJENO
-
-                if (lastLocation != null) {
-                    val searchRadiusMeters = filterRadiusKm * 1000
-                    tempFilteredList = tempFilteredList.filter { route ->
-                        if (route.pathPoints.isEmpty()) return@filter false
-                        val routeStartPoint = Location("").apply {
-                            latitude = route.pathPoints.first().latitude
-                            longitude = route.pathPoints.first().longitude
-                        }
-                        lastLocation.distanceTo(routeStartPoint) <= searchRadiusMeters
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MainScreenFilter", "Nije moguće dobiti lokaciju za filter radijusa.", e)
-            }
+            // Izolujemo logiku u pomoćnu funkciju da bi kod bio čistiji
+            tempFilteredList = filterByRadius(context, tempFilteredList, filterRadiusKm)
         }
+
+        // NOVO: Filtriranje po datumu
+        filterStartDate?.let { startDate ->
+            tempFilteredList = tempFilteredList.filter { it.createdAt.after(startDate) }
+        }
+        filterEndDate?.let { endDate ->
+            val calendar = Calendar.getInstance().apply {
+                time = endDate
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+            }
+            tempFilteredList = tempFilteredList.filter { it.createdAt.before(calendar.time) }
+        }
+
         filteredRoutes = tempFilteredList
     }
 
-
-    LaunchedEffect(locationPermissionsState.allPermissionsGranted) {
+    // EFEKAT ZA ZUMIRANJE (SADA ČIST)
+    LaunchedEffect(locationPermissionsState.allPermissionsGranted, cameraPositionState) {
         if (locationPermissionsState.allPermissionsGranted) {
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-            try {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    if (location != null) {
-                        val userLatLng = LatLng(location.latitude, location.longitude)
-                        coroutineScope.launch {
-                            cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(userLatLng, 15f), 1000)
-                        }
-                    }
-                }
-            } catch (e: SecurityException) { /* Ignorišemo grešku */ }
+            zoomToUserLocation(context, cameraPositionState, coroutineScope)
         }
     }
 
@@ -340,18 +331,23 @@ fun MainScreen(
             AddRouteDialog(pathPoints = creationPathPoints, distanceInMeters = newRouteDistance) { showAddRouteDialog = false; isInRouteCreationMode = false; creationPathPoints = emptyList() }
         }
         if (selectedSpot != null) { SpotDetailsDialog(spot = selectedSpot!!) { selectedSpot = null } }
+
         if (showFilterDialog) {
             FilterDialog(
                 initialMyRoutes = filterByMyRoutes,
                 initialDistanceRange = filterDistanceRange,
                 initialByRadius = filterByRadius,
                 initialRadiusKm = filterRadiusKm,
+                initialStartDate = filterStartDate, // NOVO
+                initialEndDate = filterEndDate,     // NOVO
                 onDismiss = { showFilterDialog = false },
-                onApply = { newMyRoutes, newDistanceRange, newByRadius, newRadiusKm ->
+                onApply = { newMyRoutes, newDistanceRange, newByRadius, newRadiusKm, newStartDate, newEndDate -> // NOVO
                     filterByMyRoutes = newMyRoutes
                     filterDistanceRange = newDistanceRange
                     filterByRadius = newByRadius
                     filterRadiusKm = newRadiusKm
+                    filterStartDate = newStartDate // NOVO
+                    filterEndDate = newEndDate     // NOVO
                     showFilterDialog = false
                 }
             )
@@ -367,13 +363,23 @@ private fun FilterDialog(
     initialDistanceRange: ClosedFloatingPointRange<Float>,
     initialByRadius: Boolean,
     initialRadiusKm: Float,
+    initialStartDate: Date?, // NOVO
+    initialEndDate: Date?,   // NOVO
     onDismiss: () -> Unit,
-    onApply: (Boolean, ClosedFloatingPointRange<Float>, Boolean, Float) -> Unit
+    onApply: (Boolean, ClosedFloatingPointRange<Float>, Boolean, Float, Date?, Date?) -> Unit // NOVO
 ) {
     var tempMyRoutes by remember { mutableStateOf(initialMyRoutes) }
     var tempDistanceRange by remember { mutableStateOf(initialDistanceRange) }
     var tempByRadius by remember { mutableStateOf(initialByRadius) }
     var tempRadiusKm by remember { mutableFloatStateOf(initialRadiusKm) }
+    var tempStartDate by remember { mutableStateOf(initialStartDate) } // NOVO
+    var tempEndDate by remember { mutableStateOf(initialEndDate) }     // NOVO
+
+    val datePickerState = rememberDatePickerState()
+    var showDatePicker by remember { mutableStateOf(false) }
+    var editingStartDate by remember { mutableStateOf(true) }
+
+    val dateFormatter = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -402,15 +408,94 @@ private fun FilterDialog(
                     Slider(value = tempRadiusKm, onValueChange = { tempRadiusKm = it }, valueRange = 1f..MAX_DISTANCE_FILTER_KM, steps = (MAX_DISTANCE_FILTER_KM.toInt() - 1))
                     Text("%.0f km".format(tempRadiusKm), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 }
+
+                // NOVO: UI za datum
+                Divider(modifier = Modifier.padding(vertical = 16.dp))
+                Text("Datum kreiranja rute:")
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                    OutlinedButton(onClick = { editingStartDate = true; showDatePicker = true }) {
+                        Text(tempStartDate?.let { dateFormatter.format(it) } ?: "Od datuma")
+                    }
+                    OutlinedButton(onClick = { editingStartDate = false; showDatePicker = true }) {
+                        Text(tempEndDate?.let { dateFormatter.format(it) } ?: "Do datuma")
+                    }
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onApply(tempMyRoutes, tempDistanceRange, tempByRadius, tempRadiusKm) }) { Text("Primeni") }
+            Button(onClick = { onApply(tempMyRoutes, tempDistanceRange, tempByRadius, tempRadiusKm, tempStartDate, tempEndDate) }) { Text("Primeni") }
         },
         dismissButton = {
             Button(onClick = onDismiss) { Text("Otkaži") }
         }
     )
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val selectedDateInMillis = datePickerState.selectedDateMillis
+                    if (selectedDateInMillis != null) {
+                        if (editingStartDate) {
+                            tempStartDate = Date(selectedDateInMillis)
+                        } else {
+                            tempEndDate = Date(selectedDateInMillis)
+                        }
+                    }
+                    showDatePicker = false
+                }) { Text("Potvrdi") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Otkaži") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+}
+
+// ----- POMOĆNE FUNKCIJE -----
+
+@SuppressLint("MissingPermission")
+private fun zoomToUserLocation(
+    context: Context,
+    cameraPositionState: CameraPositionState,
+    coroutineScope: CoroutineScope
+) {
+    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+        if (location != null) {
+            val userLatLng = LatLng(location.latitude, location.longitude)
+            coroutineScope.launch {
+                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(userLatLng, 15f), 1000)
+            }
+        }
+    }
+}
+
+@SuppressLint("MissingPermission")
+private suspend fun filterByRadius(context: Context, routes: List<Route>, radiusKm: Float): List<Route> {
+    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    var filteredList = routes
+    try {
+        val lastLocation: Location? = fusedLocationClient.lastLocation.await()
+        if (lastLocation != null) {
+            val searchRadiusMeters = radiusKm * 1000
+            filteredList = routes.filter { route ->
+                if (route.pathPoints.isEmpty()) return@filter false
+                val routeStartPoint = Location("").apply {
+                    latitude = route.pathPoints.first().latitude
+                    longitude = route.pathPoints.first().longitude
+                }
+                lastLocation.distanceTo(routeStartPoint) <= searchRadiusMeters
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("MainScreenFilter", "Nije moguće dobiti lokaciju za filter radijusa.", e)
+    }
+    return filteredList
 }
 
 private suspend fun getDirectionsWithWaypoints(apiKey: String, points: List<LatLng>): Pair<List<LatLng>, Int> = withContext(Dispatchers.IO) {
