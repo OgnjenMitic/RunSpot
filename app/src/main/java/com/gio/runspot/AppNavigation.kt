@@ -11,6 +11,7 @@ object Routes {
     const val REGISTRATION_SCREEN = "RegistrationScreen"
     const val MAIN_SCREEN = "MainScreen"
     const val RANKING_SCREEN = "RankingScreen"
+    const val PROFILE_SCREEN = "ProfileScreen"
 }
 
 @Composable
@@ -68,6 +69,12 @@ fun AppNavigation(startDestination: String,routeIdToShow:String?) {
 
         composable(Routes.RANKING_SCREEN) {
             RankingScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.PROFILE_SCREEN) {
+            ProfileScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
