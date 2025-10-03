@@ -31,7 +31,8 @@
             android:value="AIzaSyCjB4To30HlsZ007n8lWpWvBAwos5DT9l0" />
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:theme="@style/Theme.RunSpot"> <!-- I OVDE POSTAVI ISTU TEMU -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
