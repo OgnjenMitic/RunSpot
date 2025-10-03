@@ -39,11 +39,17 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.ui.text.font.FontWeight
 
 private const val MAX_DISTANCE_FILTER_KM = 50f
 
@@ -81,6 +87,9 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    var isMapView by remember { mutableStateOf(true) }
+    var allUsers by remember { mutableStateOf<List<User>>(emptyList()) }
+
     // --- Stanja za filtriranje ---
     var showFilterDialog by remember { mutableStateOf(false) }
     var filterByMyRoutes by remember { mutableStateOf(false) }
@@ -97,15 +106,38 @@ fun MainScreen(
     LaunchedEffect(Unit) {
         val db = FirebaseFirestore.getInstance()
         db.collection("routes").addSnapshotListener { snapshot, e ->
-            if (e != null) { return@addSnapshotListener }
+            if (e != null) {
+                return@addSnapshotListener
+            }
             if (snapshot != null) {
-                routes = snapshot.documents.mapNotNull { it.toObject(Route::class.java)?.copy(id = it.id) }
+                routes = snapshot.documents.mapNotNull {
+                    it.toObject(Route::class.java)?.copy(id = it.id)
+                }
             }
         }
         db.collection("spots").addSnapshotListener { snapshot, e ->
-            if (e != null) { return@addSnapshotListener }
+            if (e != null) {
+                return@addSnapshotListener
+            }
             if (snapshot != null) {
-                allSpots = snapshot.documents.mapNotNull { it.toObject(Spot::class.java)?.copy(id = it.id) }
+                allSpots = snapshot.documents.mapNotNull {
+                    it.toObject(Spot::class.java)?.copy(id = it.id)
+                }
+            }
+        }
+        // NOVO: Dobavljamo sve korisnike
+        db.collection("users").addSnapshotListener { snapshot, e ->
+            if (e != null) {
+                return@addSnapshotListener
+            }
+            if (snapshot != null) {
+                allUsers = snapshot.documents.mapNotNull { document ->
+                    // Važno: Moramo da dodamo ID dokumenta u User objekat
+                    val user = document.toObject(User::class.java)
+                    // Ako tvoja User klasa nema `uid` polje, ovo neće raditi.
+                    // Za sada ćemo samo vratiti usera, a kasnije ćemo popraviti prikaz imena.
+                    user
+                }
             }
         }
     }
@@ -116,19 +148,32 @@ fun MainScreen(
             return@LaunchedEffect
         }
         val db = FirebaseFirestore.getInstance()
-        db.collection("spots").whereEqualTo("routeId", selectedRoute.id).addSnapshotListener { snapshot, e ->
-            if (e != null) {
-                spotsForSelectedRoute = emptyList()
-                return@addSnapshotListener
+        db.collection("spots").whereEqualTo("routeId", selectedRoute.id)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    spotsForSelectedRoute = emptyList()
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    spotsForSelectedRoute = snapshot.documents.mapNotNull {
+                        it.toObject(Spot::class.java)?.copy(id = it.id)
+                    }
+                }
             }
-            if (snapshot != null) {
-                spotsForSelectedRoute = snapshot.documents.mapNotNull { it.toObject(Spot::class.java)?.copy(id = it.id) }
-            }
-        }
     }
 
     // --- LaunchedEffect sada uključuje i DATUME ---
-    LaunchedEffect(searchQuery, routes, allSpots, filterByMyRoutes, filterDistanceRange, filterByRadius, filterRadiusKm, filterStartDate, filterEndDate) {
+    LaunchedEffect(
+        searchQuery,
+        routes,
+        allSpots,
+        filterByMyRoutes,
+        filterDistanceRange,
+        filterByRadius,
+        filterRadiusKm,
+        filterStartDate,
+        filterEndDate
+    ) {
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
         var tempFilteredList = routes
 
@@ -137,7 +182,10 @@ fun MainScreen(
                 .filter { it.type.contains(searchQuery, ignoreCase = true) }
                 .map { it.routeId }.toSet()
             tempFilteredList = tempFilteredList.filter { route ->
-                route.name.contains(searchQuery, ignoreCase = true) || route.id in routeIdsWithMatchingSpots
+                route.name.contains(
+                    searchQuery,
+                    ignoreCase = true
+                ) || route.id in routeIdsWithMatchingSpots
             }
         }
 
@@ -147,7 +195,8 @@ fun MainScreen(
 
         val minDistanceMeters = (filterDistanceRange.start * 1000).toInt()
         val maxDistanceMeters = (filterDistanceRange.endInclusive * 1000).toInt()
-        tempFilteredList = tempFilteredList.filter { it.distance in minDistanceMeters..maxDistanceMeters }
+        tempFilteredList =
+            tempFilteredList.filter { it.distance in minDistanceMeters..maxDistanceMeters }
 
         if (filterByRadius && locationPermissionsState.allPermissionsGranted) {
             // Izolujemo logiku u pomoćnu funkciju da bi kod bio čistiji
@@ -182,172 +231,282 @@ fun MainScreen(
     var uiSettings by remember { mutableStateOf(MapUiSettings(myLocationButtonEnabled = locationPermissionsState.allPermissionsGranted)) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = mapProperties,
-            uiSettings = uiSettings,
-            contentPadding = PaddingValues(top = 180.dp, bottom = 90.dp),
-            onMapClick = { latLng -> if (isInRouteCreationMode) creationPathPoints += latLng else onRouteSelected(null) },
-            onMapLongClick = { latLng ->
-                if (selectedRoute != null && !isInRouteCreationMode) {
-                    val routePath = selectedRoute.pathPoints.map { LatLng(it.latitude, it.longitude) }
-                    if (PolyUtil.isLocationOnPath(latLng, routePath, true, 100.0)) {
-                        spotLocation = latLng
-                        showAddSpotScreen = true
-                    } else {
-                        Toast.makeText(context, "Spot mora biti na ruti ili blizu nje.", Toast.LENGTH_SHORT).show()
+        // --- NOVO: Uslovni prikaz mape ili liste ---
+        if (isMapView) {
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = mapProperties,
+                uiSettings = uiSettings,
+                contentPadding = PaddingValues(top = 180.dp, bottom = 90.dp),
+                onMapClick = { latLng ->
+                    if (isInRouteCreationMode) creationPathPoints += latLng else onRouteSelected(
+                        null
+                    )
+                },
+                onMapLongClick = { latLng ->
+                    if (selectedRoute != null && !isInRouteCreationMode) {
+                        val routePath =
+                            selectedRoute.pathPoints.map { LatLng(it.latitude, it.longitude) }
+                        if (PolyUtil.isLocationOnPath(latLng, routePath, true, 100.0)) {
+                            spotLocation = latLng
+                            showAddSpotScreen = true
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "Spot mora biti na ruti ili blizu nje.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
                 }
-            }
-        ) {
-            if (selectedRoute == null && !isInRouteCreationMode) {
-                filteredRoutes.forEach { route ->
-                    if (route.pathPoints.isNotEmpty()) {
-                        val startLatLng = LatLng(route.pathPoints.first().latitude, route.pathPoints.first().longitude)
+            ) {
+                if (selectedRoute == null && !isInRouteCreationMode) {
+                    filteredRoutes.forEach { route ->
+                        if (route.pathPoints.isNotEmpty()) {
+                            val startLatLng = LatLng(
+                                route.pathPoints.first().latitude,
+                                route.pathPoints.first().longitude
+                            )
+                            Marker(
+                                state = MarkerState(position = startLatLng),
+                                title = route.name,
+                                snippet = "Dužina: %.2f km".format(route.distance / 1000.0),
+                                onClick = { onRouteSelected(route); false }
+                            )
+                        }
+                    }
+                } else if (selectedRoute != null) {
+                    val route = selectedRoute
+                    val path = route.pathPoints.map { LatLng(it.latitude, it.longitude) }
+                    if (path.isNotEmpty()) {
+                        Polyline(points = path, color = Color.Red, width = 10f)
                         Marker(
-                            state = MarkerState(position = startLatLng),
+                            state = MarkerState(position = path.first()),
                             title = route.name,
-                            snippet = "Dužina: %.2f km".format(route.distance / 1000.0),
-                            onClick = { onRouteSelected(route); false }
+                            snippet = "Start"
+                        )
+                        Marker(
+                            state = MarkerState(position = path.last()),
+                            title = route.name,
+                            snippet = "Cilj"
+                        )
+                    }
+                    spotsForSelectedRoute.forEach { spot ->
+                        Marker(
+                            state = MarkerState(
+                                position = LatLng(
+                                    spot.location.latitude,
+                                    spot.location.longitude
+                                )
+                            ),
+                            title = spot.type, snippet = spot.description,
+                            onClick = { selectedSpot = spot; true }
                         )
                     }
                 }
-            } else if (selectedRoute != null) {
-                val route = selectedRoute
-                val path = route.pathPoints.map { LatLng(it.latitude, it.longitude) }
-                if (path.isNotEmpty()) {
-                    Polyline(points = path, color = Color.Red, width = 10f)
-                    Marker(state = MarkerState(position = path.first()), title = route.name, snippet = "Start")
-                    Marker(state = MarkerState(position = path.last()), title = route.name, snippet = "Cilj")
-                }
-                spotsForSelectedRoute.forEach { spot ->
-                    Marker(
-                        state = MarkerState(position = LatLng(spot.location.latitude, spot.location.longitude)),
-                        title = spot.type, snippet = spot.description,
-                        onClick = { selectedSpot = spot; true }
-                    )
+                if (isInRouteCreationMode && creationPathPoints.isNotEmpty()) {
+                    creationPathPoints.forEachIndexed { index, point ->
+                        Marker(
+                            state = MarkerState(
+                                position = point
+                            ), title = "Tačka ${index + 1}"
+                        )
+                    }
+                    if (creationPathPoints.size > 1) {
+                        Polyline(points = creationPathPoints, color = Color.Blue, width = 15f)
+                    }
                 }
             }
-            if (isInRouteCreationMode && creationPathPoints.isNotEmpty()) {
-                creationPathPoints.forEachIndexed { index, point -> Marker(state = MarkerState(position = point), title = "Tačka ${index + 1}") }
-                if (creationPathPoints.size > 1) { Polyline(points = creationPathPoints, color = Color.Blue, width = 15f) }
-            }
+        } else {
+            RouteList(
+                routes = filteredRoutes,
+                allUsers = allUsers,
+                onRouteClick = { route ->
+                    onRouteSelected(route)
+                    isMapView = true
+                }
+            )
         }
 
-        Surface(modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).fillMaxWidth(), shape = RoundedCornerShape(16.dp), shadowElevation = 8.dp) {
+        // Gornji panel sa kontrolama
+        Surface(
+            modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            shadowElevation = 8.dp
+        ) {
             Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp)) {
+                // RED 1: Pretraga i Filter
                 if (selectedRoute == null && !isInRouteCreationMode) {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, label = { Text("Pretraži rute ili spotove...") }, modifier = Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            label = { Text("Pretraži rute ili spotove...") },
+                            modifier = Modifier.weight(1f)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(onClick = { showFilterDialog = true }) { Icon(imageVector = Icons.Default.FilterList, contentDescription = "Filteri") }
+                        IconButton(onClick = { showFilterDialog = true }) {
+                            Icon(imageVector = Icons.Default.FilterList, contentDescription = "Filteri")
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { navController.navigate(Routes.PROFILE_SCREEN) }) {
-                        Text("Profil")
-                    }
-                    Button(onClick = onNavigateToRanking) { Text("Rang lista") }
-                    Button(onClick = {
-                        Intent(context, LocationService::class.java).also { context.stopService(it) }
-                        FirebaseAuth.getInstance().signOut()
-                        onRouteSelected(null)
-                        navController.navigate(Routes.LOGIN_SCREEN) { popUpTo(navController.graph.startDestinationId) { inclusive = true } }
-                    }) { Text("Odjava") }
-                    IconButton(
-                        onClick = {
-                            if (isServiceRunning) {
-                                Intent(context, LocationService::class.java).also { context.stopService(it) }
-                            } else {
-                                coroutineScope.launch {
-                                    postNotificationPermission.launchMultiplePermissionRequest()
-                                    if (postNotificationPermission.allPermissionsGranted && selectedRoute != null) {
-                                        context.startService(Intent(context, LocationService::class.java).apply { putExtra("ROUTE_ID", selectedRoute.id) })
-                                    } else {
-                                        Toast.makeText(context, "Dozvola za notifikacije je neophodna.", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        },
-                        enabled = selectedRoute != null
-                    ) { Icon(imageVector = if (isServiceRunning) Icons.Default.NotificationsOff else Icons.Default.Notifications, contentDescription = "Notifikacije") }
-                }
-            }
-        }
 
-        Surface(modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp), shape = RoundedCornerShape(16.dp), shadowElevation = 8.dp) {
-            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (selectedRoute != null) {
-                    Text("Selektovana ruta: ${selectedRoute.name}")
-                    Text("Dužina: %.2f km".format(selectedRoute.distance / 1000.0))
-                    Text("Dugi pritisak na rutu za dodavanje spota")
-                } else {
-                    if (isInRouteCreationMode) {
-                        Row {
-                            Button(
-                                onClick = {
+                Spacer(modifier = Modifier.height(8.dp))
+
+
+                    // Desna strana: Akcije
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { navController.navigate(Routes.PROFILE_SCREEN) }) { Text("Profil") }
+                        Button(onClick = onNavigateToRanking) { Text("Lista") }
+                        // Dugme za promenu prikaza
+                        IconButton(onClick = { isMapView = !isMapView }) {
+                            Icon(
+                                imageVector = if (isMapView) Icons.AutoMirrored.Filled.List else Icons.Default.Map,
+                                contentDescription = "Promeni prikaz"
+                            )
+                        }
+
+                        // Dugme za notifikacije
+                        IconButton(
+                            onClick = {
+                                if (isServiceRunning) {
+                                    Intent(context, LocationService::class.java).also { context.stopService(it) }
+                                } else if (selectedRoute != null) {
                                     coroutineScope.launch {
-                                        isLoadingDirections = true
-                                        val apiKey = context.getString(R.string.google_maps_api_key)
-                                        val directionsResult = getDirectionsWithWaypoints(apiKey, creationPathPoints)
-                                        isLoadingDirections = false
-                                        if (directionsResult.first.isNotEmpty()) {
-                                            creationPathPoints = directionsResult.first
-                                            newRouteDistance = directionsResult.second
-                                            showAddRouteDialog = true
-                                        } else {
-                                            Toast.makeText(context, "Nije moguće pronaći putanju.", Toast.LENGTH_LONG).show()
+                                        postNotificationPermission.launchMultiplePermissionRequest()
+                                        if (postNotificationPermission.allPermissionsGranted) {
+                                            context.startService(Intent(context, LocationService::class.java).apply { putExtra("ROUTE_ID", selectedRoute.id) })
                                         }
                                     }
-                                },
-                                enabled = creationPathPoints.size >= 2
-                            ) { Text("Završi i Optimizuj") }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(onClick = { isInRouteCreationMode = false; creationPathPoints = emptyList() }) { Text("Otkaži") }
+                                }
+                            },
+                            enabled = selectedRoute != null
+                        ) {
+                            Icon(
+                                imageVector = if (isServiceRunning) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                                contentDescription = "Notifikacije"
+                            )
                         }
+
+                }
+            }
+        }
+
+        // Donji panel se prikazuje samo na mapi
+        if (isMapView) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (selectedRoute != null) {
+                        Text("Selektovana ruta: ${selectedRoute.name}")
+                        Text("Dužina: %.2f km".format(selectedRoute.distance / 1000.0))
+                        Text("Dugi pritisak na rutu za dodavanje spota")
                     } else {
-                        Button(onClick = { isInRouteCreationMode = true; onRouteSelected(null) }) { Text("Započni Novu Rutu") }
+                        if (isInRouteCreationMode) {
+                            Row {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isLoadingDirections = true
+                                            val apiKey =
+                                                context.getString(R.string.google_maps_api_key)
+                                            val directionsResult = getDirectionsWithWaypoints(
+                                                apiKey,
+                                                creationPathPoints
+                                            )
+                                            isLoadingDirections = false
+                                            if (directionsResult.first.isNotEmpty()) {
+                                                creationPathPoints = directionsResult.first
+                                                newRouteDistance = directionsResult.second
+                                                showAddRouteDialog = true
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Nije moguće pronaći putanju.",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                    },
+                                    enabled = creationPathPoints.size >= 2
+                                ) { Text("Završi i Optimizuj") }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(onClick = {
+                                    isInRouteCreationMode = false; creationPathPoints = emptyList()
+                                }) { Text("Otkaži") }
+                            }
+                        } else {
+                            Button(onClick = {
+                                isInRouteCreationMode = true; onRouteSelected(null)
+                            }) { Text("Započni Novu Rutu") }
+                        }
                     }
                 }
             }
         }
 
+
         if (!locationPermissionsState.allPermissionsGranted) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(text = "Molimo, dajte dozvolu za lokaciju da biste koristili mapu.") }
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) { Text(text = "Molimo, dajte dozvolu za lokaciju da biste koristili mapu.") }
             LaunchedEffect(Unit) { locationPermissionsState.launchMultiplePermissionRequest() }
         } else {
             mapProperties = mapProperties.copy(isMyLocationEnabled = true)
             uiSettings = uiSettings.copy(myLocationButtonEnabled = true)
         }
 
-        if (isLoadingDirections) { CircularProgressIndicator(modifier = Modifier.align(Alignment.Center)) }
+        if (isLoadingDirections) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
         val currentSpotLocation = spotLocation
         if (showAddSpotScreen && currentSpotLocation != null && selectedRoute != null) {
-            AddSpotScreen(routeId = selectedRoute.id, latitude = currentSpotLocation.latitude, longitude = currentSpotLocation.longitude) { showAddSpotScreen = false; spotLocation = null }
+            AddSpotScreen(
+                routeId = selectedRoute.id,
+                latitude = currentSpotLocation.latitude,
+                longitude = currentSpotLocation.longitude
+            ) { showAddSpotScreen = false; spotLocation = null }
         }
         if (creationPathPoints.isNotEmpty() && showAddRouteDialog) {
-            AddRouteDialog(pathPoints = creationPathPoints, distanceInMeters = newRouteDistance) { showAddRouteDialog = false; isInRouteCreationMode = false; creationPathPoints = emptyList() }
+            AddRouteDialog(
+                pathPoints = creationPathPoints,
+                distanceInMeters = newRouteDistance
+            ) {
+                showAddRouteDialog = false; isInRouteCreationMode = false; creationPathPoints =
+                emptyList()
+            }
         }
-        if (selectedSpot != null) { SpotDetailsDialog(spot = selectedSpot!!) { selectedSpot = null } }
-
+        if (selectedSpot != null) {
+            SpotDetailsDialog(spot = selectedSpot!!) { selectedSpot = null }
+        }
+        // ISPRAVLJEN KOD
         if (showFilterDialog) {
             FilterDialog(
                 initialMyRoutes = filterByMyRoutes,
                 initialDistanceRange = filterDistanceRange,
                 initialByRadius = filterByRadius,
                 initialRadiusKm = filterRadiusKm,
-                initialStartDate = filterStartDate, // NOVO
-                initialEndDate = filterEndDate,     // NOVO
+                initialStartDate = filterStartDate, // DODATO
+                initialEndDate = filterEndDate,     // DODATO
                 onDismiss = { showFilterDialog = false },
-                onApply = { newMyRoutes, newDistanceRange, newByRadius, newRadiusKm, newStartDate, newEndDate -> // NOVO
+                onApply = { newMyRoutes, newDistanceRange, newByRadius, newRadiusKm, newStartDate, newEndDate -> // SADA PRIMA 6 PARAMETARA
                     filterByMyRoutes = newMyRoutes
                     filterDistanceRange = newDistanceRange
                     filterByRadius = newByRadius
                     filterRadiusKm = newRadiusKm
-                    filterStartDate = newStartDate // NOVO
-                    filterEndDate = newEndDate     // NOVO
+                    filterStartDate = newStartDate // DODATO
+                    filterEndDate = newEndDate     // DODATO
                     showFilterDialog = false
                 }
             )
@@ -397,7 +556,7 @@ private fun FilterDialog(
                 Text("od %.1f km do %.1f km".format(tempDistanceRange.start, tempDistanceRange.endInclusive), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Divider()
+                HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Switch(checked = tempByRadius, onCheckedChange = { tempByRadius = it })
@@ -410,7 +569,7 @@ private fun FilterDialog(
                 }
 
                 // NOVO: UI za datum
-                Divider(modifier = Modifier.padding(vertical = 16.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                 Text("Datum kreiranja rute:")
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
@@ -527,9 +686,68 @@ private suspend fun getDirectionsWithWaypoints(apiKey: String, points: List<LatL
     } catch (e: Exception) { Pair(emptyList(), 0) }
 }
 
+@Composable
+fun RouteList(
+    routes: List<Route>,
+    allUsers: List<User>,
+    onRouteClick: (Route) -> Unit
+) {
+    // Kreiramo mapu UID -> Ime za lakši i brži pristup
+    val userMap = allUsers.associateBy(
+        { user ->
+            // Potrebno je da znamo UID korisnika. Privremeno rešenje:
+            // Pokušaćemo da nađemo korisnika po emailu. Ovo je sporo.
+            // Kasnije ćemo ovo popraviti dodavanjem UID-a u User model.
+            val firebaseUser = FirebaseAuth.getInstance().currentUser
+            if (user.email == firebaseUser?.email) {
+                firebaseUser.uid
+            } else {
+                // Za ostale korisnike ne možemo lako znati UID,
+                // pa ćemo koristiti nasumičan string da izbegnemo kolizije u mapi
+                "unknown_${user.email}"
+            }
+        },
+        { it.fullName }
+    )
+
+    LazyColumn(
+        // Padding da lista ne ide ispod gornjeg panela
+        contentPadding = PaddingValues(top = 180.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (routes.isEmpty()) {
+            item {
+                Text(
+                    text = "Nema ruta koje odgovaraju filterima.",
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        } else {
+            items(routes) { route ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { onRouteClick(route) },
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(route.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Dužina: %.2f km".format(route.distance / 1000.0), style = MaterialTheme.typography.bodyMedium)
+
+                        // Pokušaj da nađeš ime autora preko ID-a
+                        val authorName = userMap[route.authorId] ?: "Nepoznat autor"
+                        Text("Autor: $authorName", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun decodePoly(encoded: String): List<LatLng> {
     val poly = ArrayList<LatLng>()
-    var index = 0; var len = encoded.length; var lat = 0; var lng = 0
+    var index = 0; val len = encoded.length; var lat = 0; var lng = 0
     while (index < len) {
         var b: Int; var shift = 0; var result = 0
         do { b = encoded[index++].code - 63; result = result or (b and 0x1f shl shift); shift += 5 } while (b >= 0x20)

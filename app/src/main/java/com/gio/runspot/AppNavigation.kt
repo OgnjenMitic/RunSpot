@@ -75,7 +75,15 @@ fun AppNavigation(startDestination: String,routeIdToShow:String?) {
 
         composable(Routes.PROFILE_SCREEN) {
             ProfileScreen(
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onLogout = {
+                    navController.navigate(Routes.LOGIN_SCREEN) {
+                        // Brišemo sve ekrane sa back stack-a da korisnik ne može da se vrati nazad
+                        popUpTo(navController.graph.id) {
+                            inclusive = true
+                        }
+                    }
+                }
             )
         }
     }

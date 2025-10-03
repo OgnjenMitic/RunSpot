@@ -1,5 +1,6 @@
 package com.gio.runspot
 
+import android.content.Intent
 import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -11,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -21,16 +23,17 @@ import com.google.firebase.firestore.FirebaseFirestore
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    // NOVO: Dodajemo funkciju za navigaciju nakon odjave
+    onLogout: () -> Unit
 ) {
     var user by remember { mutableStateOf<User?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    val context = LocalContext.current // NOVO: Treba nam context da zaustavimo servis
 
-    // Dobavljamo podatke za trenutno ulogovanog korisnika
     LaunchedEffect(Unit) {
         val currentFirebaseUser = FirebaseAuth.getInstance().currentUser
         if (currentFirebaseUser == null) {
-            // Ako korisnik iz nekog razloga nije ulogovan, vrati se nazad
             onNavigateBack()
             return@LaunchedEffect
         }
@@ -74,42 +77,58 @@ fun ProfileScreen(
             if (isLoading) {
                 CircularProgressIndicator()
             } else if (user != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Top
-                ) {
-                    // Prikaz profilne slike
-                    AsyncImage(
-                        model = user!!.profileImageUrl,
-                        contentDescription = "Profilna slika",
+                // NOVO: Koristimo Box da bi dugme bilo na dnu
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
                         modifier = Modifier
-                            .size(150.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top
+                    ) {
+                        AsyncImage(
+                            model = user!!.profileImageUrl,
+                            contentDescription = "Profilna slika",
+                            modifier = Modifier
+                                .size(150.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = user!!.fullName,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Ukupno poena: ${user!!.points}",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(32.dp))
+                        ProfileInfoRow(label = "Email:", value = user!!.email)
+                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        ProfileInfoRow(label = "Broj telefona:", value = user!!.phoneNumber)
+                    }
 
-                    // Prikaz podataka
-                    Text(
-                        text = user!!.fullName,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Ukupno poena: ${user!!.points}",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    // Detalji
-                    ProfileInfoRow(label = "Email:", value = user!!.email)
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
-                    ProfileInfoRow(label = "Broj telefona:", value = user!!.phoneNumber)
+                    // --- NOVO: Dugme za odjavu na dnu ekrana ---
+                    Button(
+                        onClick = {
+                            // Zaustavi servis ako radi
+                            Intent(context, LocationService::class.java).also { context.stopService(it) }
+                            // Odjavi korisnika sa Firebase-a
+                            FirebaseAuth.getInstance().signOut()
+                            // Pozovi funkciju za navigaciju na Login ekran
+                            onLogout()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text("Odjava")
+                    }
                 }
             } else {
                 Text("Nije moguće učitati podatke o profilu.")
