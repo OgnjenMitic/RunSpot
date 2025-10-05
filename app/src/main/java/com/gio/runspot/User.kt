@@ -4,9 +4,10 @@ import androidx.annotation.Keep
 
 @Keep
 data class User(
+    val id: String = "",
     val email: String = "",
     val fullName: String = "",
     val phoneNumber: String = "",
     val points: Long = 0,
-    val profileImageUrl: String? = null // NOVO: URL do profilne slike
+    val profileImageUrl: String? = null
 )

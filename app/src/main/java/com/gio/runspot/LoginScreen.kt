@@ -28,7 +28,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 
@@ -83,7 +82,7 @@ fun LoginScreen(
                 .addOnCompleteListener { task ->
                     if (task.isSuccessful) {
                         Toast.makeText(context, "Prijava uspešna!", Toast.LENGTH_SHORT).show()
-                        onLoginSuccess() // Pozivamo funkciju za navigaciju
+                        onLoginSuccess()
                     } else {
                         Toast.makeText(context, "Prijava neuspešna: ${task.exception?.message}", Toast.LENGTH_LONG).show()
                     }
@@ -96,17 +95,9 @@ fun LoginScreen(
 
         Text(
             text = "Nemaš nalog? Registruj se",
-            modifier = Modifier.clickable { onNavigateToRegister() }, // Klikom pozivamo funkciju za navigaciju
+            modifier = Modifier.clickable { onNavigateToRegister() },
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold
         )
     }
 }
-
-// Preview funkcija je sada neispravna jer glavna funkcija traži parametre
-// Ovo ćemo popraviti kasnije ako bude potrebno, za sada je nebitno
-// @Preview(showBackground = true)
-// @Composable
-// fun LoginScreenPreview() {
-//     LoginScreen()
-// }

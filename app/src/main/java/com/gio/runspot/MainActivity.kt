@@ -25,12 +25,10 @@ class MainActivity : ComponentActivity() {
         val currentUser = FirebaseAuth.getInstance().currentUser
         val routeIdToShow = intent?.getStringExtra("ROUTE_ID_TO_SHOW")
 
-        // NOVO: Jednostavnija i ispravnija logika
+
         val startDestination = if (currentUser != null) {
-            // Ako korisnik postoji (ulogovan je), UVEK idi na mapu.
             Routes.MAIN_SCREEN
         } else {
-            // Ako korisnik ne postoji, UVEK idi na login.
             Routes.LOGIN_SCREEN
         }
 

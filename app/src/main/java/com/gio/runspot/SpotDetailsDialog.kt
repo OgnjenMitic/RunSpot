@@ -22,7 +22,7 @@ fun SpotDetailsDialog(
     spot: Spot,
     onDismiss: () -> Unit
 ) {
-    // NOVO: Stanje za prikaz uvećane slike
+    // Stanje za prikaz uvećane slike
     var showEnlargedImage by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -30,7 +30,7 @@ fun SpotDetailsDialog(
         title = { Text(text = spot.type, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
         text = {
             Column {
-                // NOVO: Prikaz slike spota ako postoji
+                // Prikaz slike spota
                 spot.imageUrl?.let { imageUrl ->
                     AsyncImage(
                         model = imageUrl,
@@ -57,7 +57,7 @@ fun SpotDetailsDialog(
         }
     )
 
-    // NOVO: Dijalog za prikaz uvećane slike
+    //  prikaz uvećane slike
     if (showEnlargedImage) {
         Dialog(onDismissRequest = { showEnlargedImage = false }) {
             spot.imageUrl?.let {

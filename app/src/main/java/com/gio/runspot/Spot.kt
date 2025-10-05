@@ -12,5 +12,5 @@ data class Spot(
     val location: GeoPoint = GeoPoint(0.0, 0.0),
     val authorId: String = "",
     val createdAt: Date = Date(),
-    val imageUrl: String? = null // NOVO: URL do slike spota
+    val imageUrl: String? = null
 )

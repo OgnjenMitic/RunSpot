@@ -71,14 +71,12 @@ fun AddRouteDialog(
                         .add(routeData)
                         .addOnSuccessListener {
                             val userRef = db.collection("users").document(currentUser.uid)
-                            // Dodeljujemo 10 poena za novu rutu
                             userRef.update("points", FieldValue.increment(10))
                                 .addOnSuccessListener {
                                     Toast.makeText(context, "Ruta sačuvana! Osvojili ste 10 poena.", Toast.LENGTH_SHORT).show()
                                     onDismiss()
                                 }
                                 .addOnFailureListener {
-                                    // Ako dodela poena ne uspe, i dalje obavesti korisnika da je ruta sačuvana
                                     Toast.makeText(context, "Ruta sačuvana (greška pri dodeli poena).", Toast.LENGTH_SHORT).show()
                                     onDismiss()
                                 }

@@ -5,7 +5,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -48,7 +47,7 @@ fun AddSpotScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // --- NOVO: Stanja za sliku, dijalog i učitavanje ---
+
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var showImageSourceDialog by remember { mutableStateOf(false) }
@@ -80,7 +79,7 @@ fun AddSpotScreen(
                 Text(text = "Dodaj novi Spot na rutu")
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // --- NOVO: Prikaz i odabir slike ---
+                // Prikaz i odabir slike
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

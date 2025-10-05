@@ -60,7 +60,7 @@ fun AppNavigation(startDestination: String,routeIdToShow:String?) {
 
         composable(Routes.MAIN_SCREEN) {
             MainScreen(
-                navController = navController, // NOVO: Prosleđujemo ceo navController
+                navController = navController,
                 selectedRoute = selectedRoute,
                 onRouteSelected = { route -> selectedRoute = route },
                 onNavigateToRanking = { navController.navigate(Routes.RANKING_SCREEN) }
@@ -78,7 +78,6 @@ fun AppNavigation(startDestination: String,routeIdToShow:String?) {
                 onNavigateBack = { navController.popBackStack() },
                 onLogout = {
                     navController.navigate(Routes.LOGIN_SCREEN) {
-                        // Brišemo sve ekrane sa back stack-a da korisnik ne može da se vrati nazad
                         popUpTo(navController.graph.id) {
                             inclusive = true
                         }

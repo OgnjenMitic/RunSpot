@@ -28,7 +28,7 @@ class LocationService : Service() {
     override fun onCreate() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        setupLocationCallback() // Pozivamo novu funkciju
+        setupLocationCallback()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,7 +95,7 @@ class LocationService : Service() {
 
                             val distance = userLocation.distanceTo(spotLocation)
 
-                            if (distance < 50) { // Radijus od 50 metara
+                            if (distance < 50) {
                                 sendProximityNotification(spot)
                                 // Dodajemo ID u listu da ne bismo ponovo slali
                                 notifiedSpotIds.add(spot.id)

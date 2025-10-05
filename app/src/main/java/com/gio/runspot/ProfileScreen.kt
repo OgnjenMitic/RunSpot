@@ -29,7 +29,7 @@ fun ProfileScreen(
 ) {
     var user by remember { mutableStateOf<User?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    val context = LocalContext.current // NOVO: Treba nam context da zaustavimo servis
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         val currentFirebaseUser = FirebaseAuth.getInstance().currentUser
@@ -77,7 +77,7 @@ fun ProfileScreen(
             if (isLoading) {
                 CircularProgressIndicator()
             } else if (user != null) {
-                // NOVO: Koristimo Box da bi dugme bilo na dnu
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
@@ -112,14 +112,14 @@ fun ProfileScreen(
                         ProfileInfoRow(label = "Broj telefona:", value = user!!.phoneNumber)
                     }
 
-                    // --- NOVO: Dugme za odjavu na dnu ekrana ---
+
                     Button(
                         onClick = {
-                            // Zaustavi servis ako radi
+
                             Intent(context, LocationService::class.java).also { context.stopService(it) }
-                            // Odjavi korisnika sa Firebase-a
+
                             FirebaseAuth.getInstance().signOut()
-                            // Pozovi funkciju za navigaciju na Login ekran
+
                             onLogout()
                         },
                         modifier = Modifier

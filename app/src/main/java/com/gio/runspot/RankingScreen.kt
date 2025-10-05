@@ -29,7 +29,7 @@ fun RankingScreen(
     var userList by remember { mutableStateOf<List<User>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // --- NOVO: Stanje za prikaz uvećane slike ---
+    // za prikaz uvećane slike
     var selectedImageUrl by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -79,7 +79,6 @@ fun RankingScreen(
                         UserRankingCard(
                             rank = index + 1,
                             user = user,
-                            // NOVO: Prosleđujemo lambda funkciju za klik na sliku
                             onImageClick = {
                                 if (user.profileImageUrl != null) {
                                     selectedImageUrl = user.profileImageUrl

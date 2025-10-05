@@ -96,8 +96,8 @@ fun MainScreen(
     var filterDistanceRange by remember { mutableStateOf(0f..MAX_DISTANCE_FILTER_KM) }
     var filterByRadius by remember { mutableStateOf(false) }
     var filterRadiusKm by remember { mutableFloatStateOf(5f) }
-    var filterStartDate by remember { mutableStateOf<Date?>(null) } // NOVO
-    var filterEndDate by remember { mutableStateOf<Date?>(null) }   // NOVO
+    var filterStartDate by remember { mutableStateOf<Date?>(null) }
+    var filterEndDate by remember { mutableStateOf<Date?>(null) }
     var filteredRoutes by remember { mutableStateOf<List<Route>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var allSpots by remember { mutableStateOf<List<Spot>>(emptyList()) }
@@ -125,18 +125,13 @@ fun MainScreen(
                 }
             }
         }
-        // NOVO: Dobavljamo sve korisnike
         db.collection("users").addSnapshotListener { snapshot, e ->
             if (e != null) {
                 return@addSnapshotListener
             }
             if (snapshot != null) {
                 allUsers = snapshot.documents.mapNotNull { document ->
-                    // Važno: Moramo da dodamo ID dokumenta u User objekat
-                    val user = document.toObject(User::class.java)
-                    // Ako tvoja User klasa nema `uid` polje, ovo neće raditi.
-                    // Za sada ćemo samo vratiti usera, a kasnije ćemo popraviti prikaz imena.
-                    user
+                    document.toObject(User::class.java)?.copy(id = document.id)
                 }
             }
         }
@@ -162,7 +157,6 @@ fun MainScreen(
             }
     }
 
-    // --- LaunchedEffect sada uključuje i DATUME ---
     LaunchedEffect(
         searchQuery,
         routes,
@@ -175,52 +169,73 @@ fun MainScreen(
         filterEndDate
     ) {
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
-        var tempFilteredList = routes
 
+        // debounce: čekamo malo ako korisnik kuca u search-u
         if (searchQuery.isNotBlank()) {
-            val routeIdsWithMatchingSpots = allSpots
-                .filter { it.type.contains(searchQuery, ignoreCase = true) }
-                .map { it.routeId }.toSet()
-            tempFilteredList = tempFilteredList.filter { route ->
-                route.name.contains(
-                    searchQuery,
-                    ignoreCase = true
-                ) || route.id in routeIdsWithMatchingSpots
+            kotlinx.coroutines.delay(300)
+        }
+
+        // filtriranje prebacujemo na pozadinski thread
+        val tempList = withContext(Dispatchers.Default) {
+            var tempFilteredList = routes
+
+            // 1. Filtriranje po search-u (pretraga po imenu ili spotovima)
+            if (searchQuery.isNotBlank()) {
+                val routeIdsWithMatchingSpots = allSpots
+                    .filter { it.type.contains(searchQuery, ignoreCase = true) }
+                    .map { it.routeId }
+                    .toSet()
+
+                tempFilteredList = tempFilteredList.filter { route ->
+                    route.name.contains(searchQuery, ignoreCase = true) ||
+                            route.id in routeIdsWithMatchingSpots
+                }
             }
-        }
 
-        if (filterByMyRoutes && currentUserId != null) {
-            tempFilteredList = tempFilteredList.filter { it.authorId == currentUserId }
-        }
-
-        val minDistanceMeters = (filterDistanceRange.start * 1000).toInt()
-        val maxDistanceMeters = (filterDistanceRange.endInclusive * 1000).toInt()
-        tempFilteredList =
-            tempFilteredList.filter { it.distance in minDistanceMeters..maxDistanceMeters }
-
-        if (filterByRadius && locationPermissionsState.allPermissionsGranted) {
-            // Izolujemo logiku u pomoćnu funkciju da bi kod bio čistiji
-            tempFilteredList = filterByRadius(context, tempFilteredList, filterRadiusKm)
-        }
-
-        // NOVO: Filtriranje po datumu
-        filterStartDate?.let { startDate ->
-            tempFilteredList = tempFilteredList.filter { it.createdAt.after(startDate) }
-        }
-        filterEndDate?.let { endDate ->
-            val calendar = Calendar.getInstance().apply {
-                time = endDate
-                set(Calendar.HOUR_OF_DAY, 23)
-                set(Calendar.MINUTE, 59)
-                set(Calendar.SECOND, 59)
+            // 2. Filtriranje po mojim rutama
+            if (filterByMyRoutes && currentUserId != null) {
+                tempFilteredList = tempFilteredList.filter { it.authorId == currentUserId }
             }
-            tempFilteredList = tempFilteredList.filter { it.createdAt.before(calendar.time) }
+
+            // 3. Filtriranje po distanci
+            val minDistanceMeters = (filterDistanceRange.start * 1000).toInt()
+            val maxDistanceMeters = (filterDistanceRange.endInclusive * 1000).toInt()
+            tempFilteredList = tempFilteredList.filter { it.distance in minDistanceMeters..maxDistanceMeters }
+
+            // 4. Filtriranje po radijusu (ako ima dozvola i lokacija)
+            if (filterByRadius && locationPermissionsState.allPermissionsGranted) {
+                tempFilteredList = filterByRadius(context, tempFilteredList, filterRadiusKm)
+            }
+
+            // 5. Filtriranje po datumu početka
+            filterStartDate?.let { startDate ->
+                tempFilteredList = tempFilteredList.filter { route ->
+                    route.createdAt?.after(startDate) ?: false
+                }
+            }
+
+            // 6. Filtriranje po datumu kraja
+            filterEndDate?.let { endDate ->
+                val calendar = Calendar.getInstance().apply {
+                    time = endDate
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                }
+                tempFilteredList = tempFilteredList.filter { route ->
+                    route.createdAt?.before(calendar.time) ?: false
+                }
+            }
+
+            tempFilteredList
         }
 
-        filteredRoutes = tempFilteredList
+        // prikaz na mapi
+        filteredRoutes = tempList
     }
 
-    // EFEKAT ZA ZUMIRANJE (SADA ČIST)
+
+    // EFEKAT ZA ZUMIRANJE
     LaunchedEffect(locationPermissionsState.allPermissionsGranted, cameraPositionState) {
         if (locationPermissionsState.allPermissionsGranted) {
             zoomToUserLocation(context, cameraPositionState, coroutineScope)
@@ -231,7 +246,6 @@ fun MainScreen(
     var uiSettings by remember { mutableStateOf(MapUiSettings(myLocationButtonEnabled = locationPermissionsState.allPermissionsGranted)) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // --- NOVO: Uslovni prikaz mape ili liste ---
         if (isMapView) {
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
@@ -325,6 +339,17 @@ fun MainScreen(
                 onRouteClick = { route ->
                     onRouteSelected(route)
                     isMapView = true
+                    if (route.pathPoints.isNotEmpty()) {
+                        val firstPoint = route.pathPoints.first()
+                        coroutineScope.launch {
+                            cameraPositionState.animate(
+                                CameraUpdateFactory.newLatLngZoom(
+                                    LatLng(firstPoint.latitude, firstPoint.longitude),
+                                    15f // zoom level
+                                )
+                            )
+                        }
+                    }
                 }
             )
         }
@@ -336,7 +361,7 @@ fun MainScreen(
             shadowElevation = 8.dp
         ) {
             Column(modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp)) {
-                // RED 1: Pretraga i Filter
+                // Pretraga i Filter
                 if (selectedRoute == null && !isInRouteCreationMode) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -358,11 +383,11 @@ fun MainScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
 
-                    // Desna strana: Akcije
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = { navController.navigate(Routes.PROFILE_SCREEN) }) { Text("Profil") }
-                        Button(onClick = onNavigateToRanking) { Text("Lista") }
-                        // Dugme za promenu prikaza
+                        Button(onClick = onNavigateToRanking) { Text("Rang") }
+                        // Dugme za prikaz liste ili mape
                         IconButton(onClick = { isMapView = !isMapView }) {
                             Icon(
                                 imageVector = if (isMapView) Icons.AutoMirrored.Filled.List else Icons.Default.Map,
@@ -476,7 +501,7 @@ fun MainScreen(
                 routeId = selectedRoute.id,
                 latitude = currentSpotLocation.latitude,
                 longitude = currentSpotLocation.longitude
-            ) { showAddSpotScreen = false; spotLocation = null }
+            ) { showAddSpotScreen = false; spotLocation = null }//lambda funkcija da bi se izvrsilo na kraju
         }
         if (creationPathPoints.isNotEmpty() && showAddRouteDialog) {
             AddRouteDialog(
@@ -490,23 +515,23 @@ fun MainScreen(
         if (selectedSpot != null) {
             SpotDetailsDialog(spot = selectedSpot!!) { selectedSpot = null }
         }
-        // ISPRAVLJEN KOD
+
         if (showFilterDialog) {
             FilterDialog(
                 initialMyRoutes = filterByMyRoutes,
                 initialDistanceRange = filterDistanceRange,
                 initialByRadius = filterByRadius,
                 initialRadiusKm = filterRadiusKm,
-                initialStartDate = filterStartDate, // DODATO
-                initialEndDate = filterEndDate,     // DODATO
+                initialStartDate = filterStartDate,
+                initialEndDate = filterEndDate,
                 onDismiss = { showFilterDialog = false },
-                onApply = { newMyRoutes, newDistanceRange, newByRadius, newRadiusKm, newStartDate, newEndDate -> // SADA PRIMA 6 PARAMETARA
+                onApply = { newMyRoutes, newDistanceRange, newByRadius, newRadiusKm, newStartDate, newEndDate ->
                     filterByMyRoutes = newMyRoutes
                     filterDistanceRange = newDistanceRange
                     filterByRadius = newByRadius
                     filterRadiusKm = newRadiusKm
-                    filterStartDate = newStartDate // DODATO
-                    filterEndDate = newEndDate     // DODATO
+                    filterStartDate = newStartDate
+                    filterEndDate = newEndDate
                     showFilterDialog = false
                 }
             )
@@ -522,17 +547,17 @@ private fun FilterDialog(
     initialDistanceRange: ClosedFloatingPointRange<Float>,
     initialByRadius: Boolean,
     initialRadiusKm: Float,
-    initialStartDate: Date?, // NOVO
-    initialEndDate: Date?,   // NOVO
+    initialStartDate: Date?,
+    initialEndDate: Date?,
     onDismiss: () -> Unit,
-    onApply: (Boolean, ClosedFloatingPointRange<Float>, Boolean, Float, Date?, Date?) -> Unit // NOVO
+    onApply: (Boolean, ClosedFloatingPointRange<Float>, Boolean, Float, Date?, Date?) -> Unit
 ) {
     var tempMyRoutes by remember { mutableStateOf(initialMyRoutes) }
     var tempDistanceRange by remember { mutableStateOf(initialDistanceRange) }
     var tempByRadius by remember { mutableStateOf(initialByRadius) }
     var tempRadiusKm by remember { mutableFloatStateOf(initialRadiusKm) }
-    var tempStartDate by remember { mutableStateOf(initialStartDate) } // NOVO
-    var tempEndDate by remember { mutableStateOf(initialEndDate) }     // NOVO
+    var tempStartDate by remember { mutableStateOf(initialStartDate) }
+    var tempEndDate by remember { mutableStateOf(initialEndDate) }
 
     val datePickerState = rememberDatePickerState()
     var showDatePicker by remember { mutableStateOf(false) }
@@ -568,16 +593,31 @@ private fun FilterDialog(
                     Text("%.0f km".format(tempRadiusKm), modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 }
 
-                // NOVO: UI za datum
+                // UI za datum
                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                 Text("Datum kreiranja rute:")
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                    OutlinedButton(onClick = { editingStartDate = true; showDatePicker = true }) {
-                        Text(tempStartDate?.let { dateFormatter.format(it) } ?: "Od datuma")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        OutlinedButton(onClick = { editingStartDate = true; showDatePicker = true }) {
+                            Text(tempStartDate?.let { dateFormatter.format(it) } ?: "Od datuma")
+                        }
+                        if (tempStartDate != null) {
+                            TextButton(onClick = { tempStartDate = null }) {
+                                Text("Reset")
+                            }
+                        }
                     }
-                    OutlinedButton(onClick = { editingStartDate = false; showDatePicker = true }) {
-                        Text(tempEndDate?.let { dateFormatter.format(it) } ?: "Do datuma")
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        OutlinedButton(onClick = { editingStartDate = false; showDatePicker = true }) {
+                            Text(tempEndDate?.let { dateFormatter.format(it) } ?: "Do datuma")
+                        }
+                        if (tempEndDate != null) {
+                            TextButton(onClick = { tempEndDate = null }) {
+                                Text("Reset")
+                            }
+                        }
                     }
                 }
             }
@@ -692,26 +732,10 @@ fun RouteList(
     allUsers: List<User>,
     onRouteClick: (Route) -> Unit
 ) {
-    // Kreiramo mapu UID -> Ime za lakši i brži pristup
-    val userMap = allUsers.associateBy(
-        { user ->
-            // Potrebno je da znamo UID korisnika. Privremeno rešenje:
-            // Pokušaćemo da nađemo korisnika po emailu. Ovo je sporo.
-            // Kasnije ćemo ovo popraviti dodavanjem UID-a u User model.
-            val firebaseUser = FirebaseAuth.getInstance().currentUser
-            if (user.email == firebaseUser?.email) {
-                firebaseUser.uid
-            } else {
-                // Za ostale korisnike ne možemo lako znati UID,
-                // pa ćemo koristiti nasumičan string da izbegnemo kolizije u mapi
-                "unknown_${user.email}"
-            }
-        },
-        { it.fullName }
-    )
+    // Kreiramo mapu UID
+    val userMap = allUsers.associateBy({ it.id }, { it.fullName })
 
     LazyColumn(
-        // Padding da lista ne ide ispod gornjeg panela
         contentPadding = PaddingValues(top = 180.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -735,7 +759,7 @@ fun RouteList(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Dužina: %.2f km".format(route.distance / 1000.0), style = MaterialTheme.typography.bodyMedium)
 
-                        // Pokušaj da nađeš ime autora preko ID-a
+                        //ime autora preko ID-a
                         val authorName = userMap[route.authorId] ?: "Nepoznat autor"
                         Text("Autor: $authorName", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }

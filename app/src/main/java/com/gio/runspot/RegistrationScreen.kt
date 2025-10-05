@@ -88,7 +88,7 @@ fun RegistrationScreen(
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it }, // Dozvoljavamo unos svega
+                onValueChange = { password = it },
                 label = { Text("Šifra (min. 6 karaktera)") },
                 visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
@@ -103,7 +103,7 @@ fun RegistrationScreen(
             OutlinedTextField(
                 value = phoneNumber,
                 onValueChange = {
-                    // Dozvoljavamo unos samo 10 cifara
+
                     if (it.length <= 10 && it.all { char -> char.isDigit() }) {
                         phoneNumber = it
                     }
@@ -132,7 +132,7 @@ fun RegistrationScreen(
                         return@Button
                     }
 
-                    coroutineScope.launch {
+                    coroutineScope.launch { //coroutine omogucavaju u kotlinu da se operacije koje dugo traju kao upload izvrsavaju u pozadini
                         isLoading = true
                         try {
                             val auth = FirebaseAuth.getInstance()
