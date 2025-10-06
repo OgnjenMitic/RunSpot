@@ -92,7 +92,7 @@ fun RankingScreen(
         }
     }
 
-    // --- NOVO: Dijalog za prikaz uvećane slike ---
+
     if (selectedImageUrl != null) {
         Dialog(onDismissRequest = { selectedImageUrl = null }) {
             AsyncImage(
@@ -110,7 +110,7 @@ fun RankingScreen(
 fun UserRankingCard(
     rank: Int,
     user: User,
-    onImageClick: () -> Unit // NOVO: Parametar za klik
+    onImageClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -122,29 +122,28 @@ fun UserRankingCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // --- NOVO: Prikaz slike korisnika ---
+            //Prikaz slike korisnika
             AsyncImage(
                 model = user.profileImageUrl,
                 contentDescription = "Profilna slika korisnika ${user.fullName}",
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onImageClick), // Omogućavamo klik
+                    .clickable(onClick = onImageClick),
                 contentScale = ContentScale.Crop,
-                // Možemo dodati i placeholder sliku ako želimo
-                // placeholder = painterResource(id = R.drawable.ic_profile_placeholder)
+
             )
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Tekst sa imenom i rangom
+
             Text(
                 text = "$rank. ${user.fullName}",
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f) // Zauzima sav preostali prostor
+                modifier = Modifier.weight(1f)
             )
 
-            // Tekst sa poenima
+
             Text(text = "${user.points} poena")
         }
     }

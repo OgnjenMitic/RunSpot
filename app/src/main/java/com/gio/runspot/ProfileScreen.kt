@@ -24,7 +24,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 @Composable
 fun ProfileScreen(
     onNavigateBack: () -> Unit,
-    // NOVO: Dodajemo funkciju za navigaciju nakon odjave
     onLogout: () -> Unit
 ) {
     var user by remember { mutableStateOf<User?>(null) }

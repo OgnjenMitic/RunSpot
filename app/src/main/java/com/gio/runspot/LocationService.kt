@@ -25,7 +25,7 @@ class LocationService : Service() {
     // Lista za praćenje ID-jeva spotova za koje je notifikacija već poslata
     private val notifiedSpotIds = mutableSetOf<String>()
 
-    override fun onCreate() {
+    override fun onCreate() {//inicijalizujemo servis prilikom pokretanja aplikacije po prvi put
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         setupLocationCallback()
@@ -48,7 +48,7 @@ class LocationService : Service() {
 
         LocationServiceState.isRunning = true
         startForeground(1, notification)
-        startLocationUpdates()
+        startLocationUpdates()//od ovog trenutka stizu lokacije
         return START_STICKY
     }
 
@@ -68,7 +68,7 @@ class LocationService : Service() {
             }
     }
 
-    private fun startLocationUpdates() {
+    private fun startLocationUpdates() {//vrsi update nase lokacije i updatuje nas na svakih minut
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 180000)
             .setMinUpdateIntervalMillis(60000)
             .build()
@@ -132,28 +132,29 @@ class LocationService : Service() {
         notificationManager.notify(spot.id.hashCode(), notification)
     }
 
-    // NOVO: Funkcija sada prima ID rute
+    // Funkcija sada prima ID rute
     private fun createForegroundNotification(routeId: String): android.app.Notification {
         val notificationIntent = Intent(this, MainActivity::class.java).apply {
             action = "SHOW_MAP"
-            // NOVO: "Pakujemo" i ID rute u poruku
-            putExtra("ROUTE_ID_TO_SHOW", routeId)
+            // "Pakujemo" i ID rute u poruku
+            putExtra("ROUTE_ID_TO_SHOW", routeId)//zna koja se trenutno ruta prati
             // Važan fleg da se aktivnost ne kreira ponovo ako već postoji
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
+        }//intent za otvaranje aplikacije
+
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
             notificationIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        )//proxy
 
         return NotificationCompat.Builder(this, "location_channel")
             .setContentTitle("RunSpot je aktivan")
             .setContentText("Pratimo izabranu rutu u pozadini.")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setOngoing(true)// ne radi trebalo bi da ne mogu da je pomerim ali ne funkcionise
+            .setPriority(NotificationCompat.PRIORITY_MAX)//iz istog razloga stavljeno
             .setContentIntent(pendingIntent)
             .build()
     }

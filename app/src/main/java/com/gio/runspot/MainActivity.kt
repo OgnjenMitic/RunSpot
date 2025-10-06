@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (currentUser == null) {
-            Intent(this, LocationService::class.java).also { stopService(it) }
+            Intent(this, LocationService::class.java).also { stopService(it) }//da prekine servis ako je ukljucen a korisnik se izloguje u tom trenutku
         }
 
         setContent {
